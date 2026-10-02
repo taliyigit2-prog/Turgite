@@ -385,6 +385,7 @@ pub struct CryptoPrice {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct CsvPreview {
     pub headers: Vec<String>,
     pub rows: Vec<Vec<String>>,
@@ -393,6 +394,7 @@ pub struct CsvPreview {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct TagCount {
     pub name: String,
     pub count: i64,

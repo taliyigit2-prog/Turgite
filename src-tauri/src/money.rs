@@ -56,6 +56,7 @@ pub fn parse_amount_to_minor(s: &str, code: &str) -> Option<i64> {
 }
 
 /// Format minor units as a human string, without a currency symbol.
+#[allow(dead_code)]
 pub fn format_minor(minor: i64, code: &str) -> String {
     let exp = exponent(code) as u32;
     let factor = 10i64.pow(exp);
@@ -73,6 +74,7 @@ pub fn format_minor(minor: i64, code: &str) -> String {
 }
 
 /// Format minor units with thousands separators (no symbol).
+#[allow(dead_code)]
 pub fn format_minor_grouped(minor: i64, code: &str) -> String {
     let exp = exponent(code) as u32;
     let factor = 10i64.pow(exp);

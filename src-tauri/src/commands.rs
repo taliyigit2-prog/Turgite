@@ -546,35 +546,33 @@ pub fn add_debt_payment_cmd(state: State<Db>, debt_id: i64, amount_minor: i64, p
 // Budgets
 // ---------------------------------------------------------------------------
 fn period_start(start_at: i64, period: &str, now: i64) -> i64 {
-    use chrono::{Datelike, NaiveDateTime, TimeZone, Utc};
-    let dt = Utc.timestamp_opt(start_at, 0).single().unwrap_or_else(|| Utc::now());
-    let n = Utc.timestamp_opt(now, 0).single().unwrap_or_else(|| Utc::now());
-    match period {
+    use chrono::{Datelike, TimeZone, Utc};
+    let s = Utc.timestamp_opt(start_at, 0).single().unwrap_or_else(Utc::now).date_naive();
+    let n = Utc.timestamp_opt(now, 0).single().unwrap_or_else(Utc::now).date_naive();
+    let day = s.day().min(28);
+    let date = match period {
         "weekly" => {
-            let days = (n - dt).num_days();
-            let weeks = days / 7;
-            (dt + chrono::Duration::days(weeks * 7)).timestamp()
+            let weeks = (n - s).num_days() / 7;
+            s + chrono::Duration::days(weeks * 7)
         }
         "yearly" => {
-            let years = n.year() - dt.year();
-            let candidate = dt.with_year(dt.year() + years).unwrap_or(dt);
-            if candidate.timestamp() > now { candidate.timestamp() - 31536000 } else { candidate.timestamp() }
+            let mut y = s.year() + (n.year() - s.year());
+            let mut candidate = chrono::NaiveDate::from_ymd_opt(y, s.month(), day).unwrap_or(s);
+            if candidate > n {
+                y -= 1;
+                candidate = chrono::NaiveDate::from_ymd_opt(y, s.month(), day).unwrap_or(s);
+            }
+            candidate
         }
         _ => {
-            let months = (n.year() - dt.year()) * 12 + (n.month() as i32 - dt.month() as i32);
-            let candidate = dt + chrono::Duration::days(0);
-            // approximate by adding months via NaiveDate
-            let nd = NaiveDateTime::from_timestamp_opt(dt.timestamp(), 0).unwrap().date();
-            let mut y = nd.year();
-            let mut m = nd.month() as i32 + months;
-            while m > 12 { m -= 12; y += 1; }
-            while m < 1 { m += 12; y -= 1; }
-            let d = chrono::NaiveDate::from_ymd_opt(y, m as u32, nd.day()).unwrap_or(nd);
-            let ts = d.and_hms_opt(0,0,0).unwrap().and_utc().timestamp();
-            let _ = candidate;
-            ts
+            let months = (n.year() - s.year()) * 12 + (n.month() as i32 - s.month() as i32);
+            let total = s.month() as i32 + months;
+            let y = s.year() + (total - 1).div_euclid(12);
+            let m = ((total - 1).rem_euclid(12) + 1) as u32;
+            chrono::NaiveDate::from_ymd_opt(y, m, day).unwrap_or(s)
         }
-    }
+    };
+    date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp()
 }
 
 #[tauri::command]
