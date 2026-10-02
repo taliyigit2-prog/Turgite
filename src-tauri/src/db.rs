@@ -6,7 +6,7 @@ pub struct Db(pub Mutex<Connection>);
 
 pub fn app_data_dir() -> PathBuf {
     let base = dirs_like();
-    let dir = base.join("com.turgite.app");
+    let dir = base.join("com.turgite.desktop");
     std::fs::create_dir_all(&dir).ok();
     dir
 }
