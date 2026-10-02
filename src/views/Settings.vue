@@ -89,7 +89,7 @@ async function doBackup() {
   try {
     const path = await saveDialog({
       defaultPath: "turgite-backup.db",
-      filters: [{ name: "Turgite backup", extensions: ["db"] }],
+      filters: [{ name: t("settings.backup"), extensions: ["db"] }],
     });
     if (!path) return;
     await api.backupDb(path, password.value || null);
@@ -101,7 +101,7 @@ async function doBackup() {
 
 async function doRestore() {
   try {
-    const path = await openDialog({ multiple: false, filters: [{ name: "Turgite backup", extensions: ["db"] }] });
+    const path = await openDialog({ multiple: false, filters: [{ name: t("settings.backup"), extensions: ["db"] }] });
     if (!path || Array.isArray(path)) return;
     await api.restoreDb(path as string, password.value || null);
     toast(t("settings.restoreSuccess"));

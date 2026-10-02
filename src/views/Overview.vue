@@ -4,22 +4,33 @@ import { useI18n } from "vue-i18n";
 import VChart from "vue-echarts";
 import { api, LargestExpense } from "../lib/api";
 import { settings, bump, version } from "../lib/store";
-import { formatMoney, formatDate, startOfMonth, daysAgo, nowSecs } from "../lib/format";
+import { formatMoney, formatDate, startOfMonth, startOfYear, monthBounds, daysAgo, nowSecs, toISODateLocal, fromISODate } from "../lib/format";
 
 const { t } = useI18n();
 
+const range = ref("thisMonth");
+const customFrom = ref(toISODateLocal(daysAgo(29)));
+const customTo = ref(toISODateLocal(nowSecs()));
 const summary = ref({ incomeMinor: 0, expenseMinor: 0, netMinor: 0, txCount: 0 });
 const series = ref<{ date: number; income: number; expense: number; net: number }[]>([]);
 const byCategory = ref<{ name: string; color: string; total: number }[]>([]);
 const largest = ref<LargestExpense[]>([]);
 
-async function load() {
-  const from = daysAgo(29);
+function bounds() {
   const to = nowSecs();
+  if (range.value === "thisMonth") return { from: startOfMonth(), to };
+  if (range.value === "lastMonth") return monthBounds(-1);
+  if (range.value === "last30") return { from: daysAgo(29), to };
+  if (range.value === "thisYear") return { from: startOfYear(), to };
+  return { from: fromISODate(customFrom.value), to: fromISODate(customTo.value) };
+}
+
+async function load() {
+  const { from, to } = bounds();
   const [s, sr, cat, large] = await Promise.all([
-    api.reportSummary(startOfMonth(), to),
+    api.reportSummary(from, to),
     api.reportSeries(from, to),
-    api.reportByCategory(startOfMonth(), to, "expense"),
+    api.reportByCategory(from, to, "expense"),
     api.reportLargestExpense(from, to, 5),
   ]);
   summary.value = s;
@@ -30,6 +41,10 @@ async function load() {
 
 onMounted(load);
 watch(version, load);
+watch(range, load);
+watch([customFrom, customTo], () => {
+  if (range.value === "custom") load();
+});
 
 const base = computed(() => settings.value.baseCurrency);
 const loc = computed(() => (settings.value.language === "tr" ? "tr-TR" : "en-US"));
@@ -97,6 +112,19 @@ const pieOption = computed(() => ({
         <h1 class="page-title">{{ t("nav.overview") }}</h1>
         <p class="page-sub">{{ t("overview.thisMonth") }}</p>
       </div>
+      <div class="segmented">
+        <button :class="{ active: range === 'thisMonth' }" @click="range = 'thisMonth'">{{ t("reports.thisMonth") }}</button>
+        <button :class="{ active: range === 'lastMonth' }" @click="range = 'lastMonth'">{{ t("reports.lastMonth") }}</button>
+        <button :class="{ active: range === 'last30' }" @click="range = 'last30'">{{ t("reports.last30") }}</button>
+        <button :class="{ active: range === 'custom' }" @click="range = 'custom'">{{ t("reports.custom") }}</button>
+      </div>
+    </div>
+
+    <div v-if="range === 'custom'" class="toolbar">
+      <span class="muted">{{ t("reports.from") }}</span>
+      <input class="input" type="date" v-model="customFrom" style="width: auto" />
+      <span class="muted">{{ t("reports.to") }}</span>
+      <input class="input" type="date" v-model="customTo" style="width: auto" />
     </div>
 
     <div class="stats">

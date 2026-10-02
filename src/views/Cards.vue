@@ -6,7 +6,7 @@ import Modal from "../components/Modal.vue";
 import CurrencySelect from "../components/CurrencySelect.vue";
 import MoneyInput from "../components/MoneyInput.vue";
 import { api, CreditCard, Installment, Account } from "../lib/api";
-import { settings, bump, version } from "../lib/store";
+import { settings, bump, version, toast } from "../lib/store";
 import { formatMoney, intlLocale, toISODateLocal, fromISODate, nowSecs } from "../lib/format";
 
 const { t } = useI18n();
@@ -15,7 +15,10 @@ const installments = ref<Installment[]>([]);
 const accounts = ref<Account[]>([]);
 const open = ref(false);
 const instOpen = ref(false);
+const payOpen = ref(false);
 const editingId = ref<number | null>(null);
+const payInst = ref<Installment | null>(null);
+const payDate = ref(toISODateLocal(nowSecs()));
 const form = ref({ accountId: null as number | null, name: "", creditLimitMinor: 0, statementDay: 1, dueDay: 10 });
 const instForm = ref({ accountId: null as number | null, name: "", totalMinor: 0, currency: settings.value.baseCurrency, months: 3, startedAt: toISODateLocal(nowSecs()), note: "" });
 
@@ -61,6 +64,18 @@ async function saveInst() {
 async function removeInst(i: Installment) {
   if (!confirm(t("confirm.deleteBody"))) return;
   await api.deleteInstallment(i.id);
+  bump();
+}
+function openPay(i: Installment) {
+  payInst.value = i;
+  payDate.value = toISODateLocal(nowSecs());
+  payOpen.value = true;
+}
+async function doPay() {
+  if (!payInst.value) return;
+  await api.payInstallment(payInst.value.id, fromISODate(payDate.value));
+  payOpen.value = false;
+  toast(t("cards.paid"));
   bump();
 }
 function limitPct(c: CreditCard) {
@@ -121,8 +136,8 @@ function limitPct(c: CreditCard) {
           <tr>
             <th>{{ t("common.name") }}</th>
             <th>{{ t("cards.monthly") }}</th>
+            <th>{{ t("cards.paid") }}</th>
             <th class="right">{{ t("cards.remaining") }}</th>
-            <th class="right">{{ t("cards.months") }}</th>
             <th></th>
           </tr>
         </thead>
@@ -130,9 +145,12 @@ function limitPct(c: CreditCard) {
           <tr v-for="i in installments" :key="i.id">
             <td>{{ i.name }}</td>
             <td class="muted">{{ formatMoney(i.monthlyMinor, i.currency, intlLocale(settings.language)) }}</td>
+            <td class="muted">{{ i.paidCount }} / {{ i.months }}</td>
             <td class="right bold">{{ formatMoney(i.remainingMinor, i.currency, intlLocale(settings.language)) }}</td>
-            <td class="right muted">{{ i.remainingMonths }} / {{ i.months }}</td>
-            <td style="width: 44px">
+            <td style="width: 110px; white-space: nowrap">
+              <button class="btn btn-sm btn-primary" :disabled="i.remainingMonths <= 0" @click="openPay(i)">
+                <Icon name="check" :size="14" /> {{ t("cards.pay") }}
+              </button>
               <button class="icon-btn danger" @click="removeInst(i)"><Icon name="trash" :size="15" /></button>
             </td>
           </tr>
@@ -176,6 +194,12 @@ function limitPct(c: CreditCard) {
         <label>{{ t("common.name") }}</label>
         <input class="input" v-model="instForm.name" />
       </div>
+      <div class="field">
+        <label>{{ t("cards.linkAccount") }}</label>
+        <select class="select" v-model="instForm.accountId">
+          <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+        </select>
+      </div>
       <div class="field-row">
         <div class="field">
           <label>{{ t("cards.total") }}</label>
@@ -199,6 +223,22 @@ function limitPct(c: CreditCard) {
       <div class="modal-actions">
         <button class="btn" @click="instOpen = false">{{ t("common.cancel") }}</button>
         <button class="btn btn-primary" @click="saveInst">{{ t("common.save") }}</button>
+      </div>
+    </Modal>
+
+    <Modal v-if="payOpen" :title="t('cards.pay')" @close="payOpen = false">
+      <p class="muted">{{ payInst?.name }}</p>
+      <div class="field">
+        <label>{{ t("common.date") }}</label>
+        <input class="input" type="date" v-model="payDate" />
+      </div>
+      <div class="field">
+        <label>{{ t("cards.monthly") }}</label>
+        <div class="bold">{{ payInst ? formatMoney(payInst.monthlyMinor, payInst.currency, intlLocale(settings.language)) : "" }}</div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" @click="payOpen = false">{{ t("common.cancel") }}</button>
+        <button class="btn btn-primary" @click="doPay">{{ t("cards.pay") }}</button>
       </div>
     </Modal>
   </div>

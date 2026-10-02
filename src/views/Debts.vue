@@ -17,6 +17,7 @@ const payOpen = ref(false);
 const editingId = ref<number | null>(null);
 const payDebt = ref<Debt | null>(null);
 const payAmount = ref(0);
+const payDate = ref(toISODateLocal(nowSecs()));
 const form = ref({ counterpart: "", direction: "owed", principalMinor: 0, currency: settings.value.baseCurrency, dueAt: "", note: "" });
 
 async function load() {
@@ -57,11 +58,12 @@ async function remove(d: Debt) {
 function openPay(d: Debt) {
   payDebt.value = d;
   payAmount.value = 0;
+  payDate.value = toISODateLocal(nowSecs());
   payOpen.value = true;
 }
 async function doPay() {
   if (!payDebt.value || payAmount.value <= 0) return;
-  await api.addDebtPayment(payDebt.value.id, payAmount.value, nowSecs());
+  await api.addDebtPayment(payDebt.value.id, payAmount.value, fromISODate(payDate.value));
   payOpen.value = false;
   bump();
 }
@@ -150,6 +152,10 @@ async function doPay() {
       <div class="field">
         <label>{{ t("debts.amountPaid") }}</label>
         <MoneyInput v-model="payAmount" :currency="payDebt?.currency || settings.baseCurrency" />
+      </div>
+      <div class="field">
+        <label>{{ t("common.date") }}</label>
+        <input class="input" type="date" v-model="payDate" />
       </div>
       <div class="modal-actions">
         <button class="btn" @click="payOpen = false">{{ t("common.cancel") }}</button>

@@ -244,11 +244,12 @@ fn row_to_tx(r: &rusqlite::Row) -> rusqlite::Result<Transaction> {
         payee: r.get(17)?,
         note: r.get(18)?,
         source: r.get(19)?,
+        goal_id: r.get(20)?,
         tags,
     })
 }
 
-const TX_SELECT: &str = "SELECT t.id, t.kind, t.account_id, a.name, a.currency, t.dest_account_id, da.name, t.category_id, c.name, c.icon, c.color, t.amount_minor, t.currency, t.amount_base_minor, t.rate_scaled, t.occurred_at, (SELECT group_concat(tg.name, ',') FROM tags tg JOIN transaction_tags tt ON tt.tag_id=tg.id WHERE tt.transaction_id=t.id), t.payee, t.note, t.source FROM transactions t LEFT JOIN accounts a ON a.id=t.account_id LEFT JOIN accounts da ON da.id=t.dest_account_id LEFT JOIN categories c ON c.id=t.category_id";
+const TX_SELECT: &str = "SELECT t.id, t.kind, t.account_id, a.name, a.currency, t.dest_account_id, da.name, t.category_id, c.name, c.icon, c.color, t.amount_minor, t.currency, t.amount_base_minor, t.rate_scaled, t.occurred_at, (SELECT group_concat(tg.name, ',') FROM tags tg JOIN transaction_tags tt ON tt.tag_id=tg.id WHERE tt.transaction_id=t.id), t.payee, t.note, t.source, t.goal_id FROM transactions t LEFT JOIN accounts a ON a.id=t.account_id LEFT JOIN accounts da ON da.id=t.dest_account_id LEFT JOIN categories c ON c.id=t.category_id";
 
 fn get_tx(c: &Connection, id: i64) -> Res<Transaction> {
     c.query_row(&format!("{} WHERE t.id=?1", TX_SELECT), params![id], row_to_tx)
@@ -348,16 +349,16 @@ pub fn save_transaction_cmd(state: State<Db>, input: TxnInput) -> Res<Transactio
     let id = match input.id {
         Some(id) => {
             c.execute(
-                "UPDATE transactions SET kind=?1, account_id=?2, dest_account_id=?3, category_id=?4, amount_minor=?5, currency=?6, amount_base_minor=?7, rate_scaled=?8, occurred_at=?9, payee=?10, note=?11, updated_at=?12 WHERE id=?13",
-                params![input.kind, input.account_id, input.dest_account_id, input.category_id, input.amount_minor, input.currency, amount_base_minor, rate_scaled, input.occurred_at, input.payee, input.note, now, id],
+                "UPDATE transactions SET kind=?1, account_id=?2, dest_account_id=?3, category_id=?4, goal_id=?5, amount_minor=?6, currency=?7, amount_base_minor=?8, rate_scaled=?9, occurred_at=?10, payee=?11, note=?12, updated_at=?13 WHERE id=?14",
+                params![input.kind, input.account_id, input.dest_account_id, input.category_id, input.goal_id, input.amount_minor, input.currency, amount_base_minor, rate_scaled, input.occurred_at, input.payee, input.note, now, id],
             )
             .map_err(|e| e.to_string())?;
             id
         }
         None => {
             c.execute(
-                "INSERT INTO transactions (kind, account_id, dest_account_id, category_id, amount_minor, currency, amount_base_minor, rate_scaled, occurred_at, payee, note, source, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,'manual',?12,?12)",
-                params![input.kind, input.account_id, input.dest_account_id, input.category_id, input.amount_minor, input.currency, amount_base_minor, rate_scaled, input.occurred_at, input.payee, input.note, now],
+                "INSERT INTO transactions (kind, account_id, dest_account_id, category_id, goal_id, amount_minor, currency, amount_base_minor, rate_scaled, occurred_at, payee, note, source, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,'manual',?13,?13)",
+                params![input.kind, input.account_id, input.dest_account_id, input.category_id, input.goal_id, input.amount_minor, input.currency, amount_base_minor, rate_scaled, input.occurred_at, input.payee, input.note, now],
             )
             .map_err(|e| e.to_string())?;
             c.last_insert_rowid()
@@ -411,7 +412,7 @@ pub fn list_goals_cmd(state: State<Db>) -> Res<Vec<Goal>> {
     let mut stmt = c
         .prepare(
             "SELECT g.id, g.name, g.target_minor, g.currency, g.target_date, g.account_id, g.color, g.note, g.icon,
-             COALESCE((SELECT SUM(t.amount_minor) FROM transactions t WHERE t.goal_id=g.id AND t.currency=g.currency AND t.kind='expense'),0)
+             COALESCE((SELECT SUM(t.amount_minor) FROM transactions t WHERE t.goal_id=g.id AND t.currency=g.currency),0)
              FROM goals g ORDER BY g.id",
         )
         .map_err(|e| e.to_string())?;
@@ -756,6 +757,193 @@ pub fn toggle_recurring_cmd(state: State<Db>, id: i64, active: bool) -> Res<()> 
     Ok(())
 }
 
+fn advance_next(ts: i64, freq: &str, interval_n: i64) -> i64 {
+    use chrono::{Datelike, TimeZone, Utc};
+    let n = interval_n.max(1) as i32;
+    let dt = Utc.timestamp_opt(ts, 0).single().unwrap_or_else(Utc::now);
+    let d = dt.date_naive();
+    match freq {
+        "daily" => ts + n as i64 * 86400,
+        "weekly" => ts + n as i64 * 7 * 86400,
+        "yearly" => {
+            let y = d.year() + n;
+            chrono::NaiveDate::from_ymd_opt(y, d.month(), d.day().min(28))
+                .unwrap_or(d)
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+                .and_utc()
+                .timestamp()
+        }
+        _ => {
+            let total = d.month() as i32 + n;
+            let y = d.year() + (total - 1).div_euclid(12);
+            let m = ((total - 1).rem_euclid(12) + 1) as u32;
+            chrono::NaiveDate::from_ymd_opt(y, m, d.day().min(28))
+                .unwrap_or(d)
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+                .and_utc()
+                .timestamp()
+        }
+    }
+}
+
+async fn post_rule(
+    state: &State<'_, Db>,
+    base: &str,
+    id: i64,
+    kind: &str,
+    account_id: i64,
+    dest_account_id: Option<i64>,
+    category_id: Option<i64>,
+    amount_minor: i64,
+    currency: &str,
+    payee: &str,
+    note: &str,
+    occurred_at: i64,
+) -> Res<()> {
+    let (rate_scaled, amount_base_minor) = if currency == base {
+        (RATE_SCALE, amount_minor)
+    } else {
+        let r = fx::fetch_fx_rate(base, currency).await?;
+        (
+            r.rate_scaled,
+            money::to_base_minor(amount_minor, currency, base, r.rate_scaled),
+        )
+    };
+    let c = conn(state);
+    c.execute(
+        "INSERT INTO transactions (kind, account_id, dest_account_id, category_id, amount_minor, currency, amount_base_minor, rate_scaled, occurred_at, payee, note, source, recurring_id, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,'recurring',?12,?13,?13)",
+        params![kind, account_id, dest_account_id, category_id, amount_minor, currency, amount_base_minor, rate_scaled, occurred_at, payee, note, id, now_secs()],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn run_recurring_cmd(state: State<'_, Db>) -> Res<usize> {
+    let base = {
+        let c = conn(&state);
+        get_settings(&c)?.base_currency.clone()
+    };
+    let now = now_secs();
+    type Rule = (
+        i64,
+        String,
+        i64,
+        Option<i64>,
+        Option<i64>,
+        i64,
+        String,
+        String,
+        String,
+        String,
+        i64,
+        i64,
+        Option<i64>,
+    );
+    let due: Vec<Rule> = {
+        let c = conn(&state);
+        let mut stmt = c
+            .prepare(
+                "SELECT id, kind, account_id, dest_account_id, category_id, amount_minor, currency, payee, note, freq, interval_n, next_run_at, end_at FROM recurring_rules WHERE active=1 AND next_run_at<=?1 ORDER BY next_run_at",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![now], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                    r.get(7)?,
+                    r.get(8)?,
+                    r.get(9)?,
+                    r.get(10)?,
+                    r.get(11)?,
+                    r.get(12)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        let mut v = Vec::new();
+        for r in rows {
+            v.push(r.map_err(|e| e.to_string())?);
+        }
+        v
+    };
+    let mut posted = 0usize;
+    for (id, kind, account_id, dest_account_id, category_id, amount_minor, currency, payee, note, freq, interval_n, next_run_at, end_at) in due {
+        if post_rule(&state, &base, id, &kind, account_id, dest_account_id, category_id, amount_minor, &currency, &payee, &note, now).await.is_err() {
+            continue;
+        }
+        let next = advance_next(next_run_at, &freq, interval_n);
+        let c = conn(&state);
+        if let Some(end) = end_at {
+            if next > end {
+                c.execute("UPDATE recurring_rules SET active=0 WHERE id=?1", params![id])
+                    .map_err(|e| e.to_string())?;
+            } else {
+                c.execute("UPDATE recurring_rules SET next_run_at=?1 WHERE id=?2", params![next, id])
+                    .map_err(|e| e.to_string())?;
+            }
+        } else {
+            c.execute("UPDATE recurring_rules SET next_run_at=?1 WHERE id=?2", params![next, id])
+                .map_err(|e| e.to_string())?;
+        }
+        posted += 1;
+    }
+    Ok(posted)
+}
+
+#[tauri::command]
+pub async fn run_recurring_one_cmd(state: State<'_, Db>, id: i64) -> Res<()> {
+    let base = {
+        let c = conn(&state);
+        get_settings(&c)?.base_currency.clone()
+    };
+    let now = now_secs();
+    let (kind, account_id, dest_account_id, category_id, amount_minor, currency, payee, note, freq, interval_n, next_run_at, end_at) = {
+        let c = conn(&state);
+        c.query_row(
+            "SELECT kind, account_id, dest_account_id, category_id, amount_minor, currency, payee, note, freq, interval_n, next_run_at, end_at FROM recurring_rules WHERE id=?1",
+            params![id],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, Option<i64>>(2)?,
+                    r.get::<_, Option<i64>>(3)?,
+                    r.get::<_, i64>(4)?,
+                    r.get::<_, String>(5)?,
+                    r.get::<_, String>(6)?,
+                    r.get::<_, String>(7)?,
+                    r.get::<_, String>(8)?,
+                    r.get::<_, i64>(9)?,
+                    r.get::<_, i64>(10)?,
+                    r.get::<_, Option<i64>>(11)?,
+                ))
+            },
+        )
+        .map_err(|e| e.to_string())?
+    };
+    post_rule(&state, &base, id, &kind, account_id, dest_account_id, category_id, amount_minor, &currency, &payee, &note, now).await?;
+    let next = advance_next(next_run_at, &freq, interval_n);
+    let c = conn(&state);
+    if let Some(end) = end_at {
+        if next > end {
+            c.execute("UPDATE recurring_rules SET active=0 WHERE id=?1", params![id]).map_err(|e| e.to_string())?;
+        } else {
+            c.execute("UPDATE recurring_rules SET next_run_at=?1 WHERE id=?2", params![next, id]).map_err(|e| e.to_string())?;
+        }
+    } else {
+        c.execute("UPDATE recurring_rules SET next_run_at=?1 WHERE id=?2", params![next, id]).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Crypto
 // ---------------------------------------------------------------------------
@@ -885,9 +1073,8 @@ pub fn delete_card_cmd(state: State<Db>, id: i64) -> Res<()> {
 #[tauri::command]
 pub fn list_installments_cmd(state: State<Db>) -> Res<Vec<Installment>> {
     let c = conn(&state);
-    let now = now_secs();
     let mut stmt = c
-        .prepare("SELECT id, account_id, name, total_minor, currency, months, started_at, note FROM installments ORDER BY id")
+        .prepare("SELECT id, account_id, name, total_minor, currency, months, paid_count, started_at, note FROM installments ORDER BY id")
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([], |r| {
@@ -899,16 +1086,17 @@ pub fn list_installments_cmd(state: State<Db>) -> Res<Vec<Installment>> {
                 r.get::<_, String>(4)?,
                 r.get::<_, i64>(5)?,
                 r.get::<_, i64>(6)?,
-                r.get::<_, String>(7)?,
+                r.get::<_, i64>(7)?,
+                r.get::<_, String>(8)?,
             ))
         })
         .map_err(|e| e.to_string())?;
     let mut out = Vec::new();
     for r in rows {
-        let (id, account_id, name, total, currency, months, started_at, note) = r.map_err(|e| e.to_string())?;
+        let (id, account_id, name, total, currency, months, paid_count, started_at, note) =
+            r.map_err(|e| e.to_string())?;
         let monthly = if months > 0 { total / months } else { total };
-        let elapsed_months = (now - started_at) / (30 * 86400);
-        let remaining_months = (months - elapsed_months).max(0);
+        let remaining_months = (months - paid_count).max(0);
         let remaining = remaining_months * monthly;
         out.push(Installment {
             id,
@@ -917,6 +1105,7 @@ pub fn list_installments_cmd(state: State<Db>) -> Res<Vec<Installment>> {
             total_minor: total,
             currency,
             months,
+            paid_count,
             started_at,
             note,
             monthly_minor: monthly,
@@ -925,6 +1114,59 @@ pub fn list_installments_cmd(state: State<Db>) -> Res<Vec<Installment>> {
         });
     }
     Ok(out)
+}
+
+#[tauri::command]
+pub async fn pay_installment_cmd(state: State<'_, Db>, id: i64, paid_at: i64) -> Res<()> {
+    let (account_id, name, total, currency, months, paid_count) = {
+        let c = conn(&state);
+        c.query_row(
+            "SELECT account_id, name, total_minor, currency, months, paid_count FROM installments WHERE id=?1",
+            params![id],
+            |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, i64>(4)?,
+                    r.get::<_, i64>(5)?,
+                ))
+            },
+        )
+        .map_err(|e| e.to_string())?
+    };
+    if paid_count >= months {
+        return Err("installment already fully paid".into());
+    }
+    let monthly = if months > 0 { total / months } else { total };
+    let base = {
+        let c = conn(&state);
+        get_settings(&c)?.base_currency.clone()
+    };
+    let (rate_scaled, amount_base_minor) = if currency == base {
+        (RATE_SCALE, monthly)
+    } else {
+        let rate = fx::fetch_fx_rate(&base, &currency).await?;
+        (
+            rate.rate_scaled,
+            money::to_base_minor(monthly, &currency, &base, rate.rate_scaled),
+        )
+    };
+    let new_count = paid_count + 1;
+    let payee = format!("{} ({}/{})", name, new_count, months);
+    let c = conn(&state);
+    c.execute(
+        "INSERT INTO transactions (kind, account_id, category_id, amount_minor, currency, amount_base_minor, rate_scaled, occurred_at, payee, note, source, created_at, updated_at) VALUES ('expense', ?1, NULL, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'manual', ?9, ?9)",
+        params![account_id, monthly, currency, amount_base_minor, rate_scaled, paid_at, payee, name, now_secs()],
+    )
+    .map_err(|e| e.to_string())?;
+    c.execute(
+        "UPDATE installments SET paid_count=?1 WHERE id=?2",
+        params![new_count, id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]

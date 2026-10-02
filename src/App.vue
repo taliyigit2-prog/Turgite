@@ -16,6 +16,7 @@ import Debts from "./views/Debts.vue";
 import Reports from "./views/Reports.vue";
 import Cards from "./views/Cards.vue";
 import Crypto from "./views/Crypto.vue";
+import Rates from "./views/Rates.vue";
 import SettingsView from "./views/Settings.vue";
 
 const { t, locale: i18nLocale } = useI18n();
@@ -34,6 +35,7 @@ const navItems = [
   { key: "reports", icon: "reports" },
   { key: "cards", icon: "cards" },
   { key: "crypto", icon: "crypto" },
+  { key: "rates", icon: "rates" },
   { key: "settings", icon: "settings" },
 ];
 
@@ -49,6 +51,7 @@ const components: Record<string, any> = {
   reports: Reports,
   cards: Cards,
   crypto: Crypto,
+  rates: Rates,
   settings: SettingsView,
 };
 

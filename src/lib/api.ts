@@ -66,6 +66,7 @@ export interface Transaction {
   categoryName: string | null;
   categoryIcon: string | null;
   categoryColor: string | null;
+  goalId: number | null;
   amountMinor: number;
   currency: string;
   amountBaseMinor: number;
@@ -83,6 +84,7 @@ export interface TxnInput {
   accountId: number;
   destAccountId: number | null;
   categoryId: number | null;
+  goalId?: number | null;
   amountMinor: number;
   currency: string;
   rateScaled?: number;
@@ -194,6 +196,7 @@ export interface Installment {
   totalMinor: number;
   currency: string;
   months: number;
+  paidCount: number;
   startedAt: number;
   note: string;
   monthlyMinor: number;
@@ -287,6 +290,8 @@ export const api = {
   saveRecurring: (input: Record<string, unknown>) => invoke("save_recurring_cmd", { input }),
   deleteRecurring: (id: number) => invoke("delete_recurring_cmd", { id }),
   toggleRecurring: (id: number, active: boolean) => invoke("toggle_recurring_cmd", { id, active }),
+  runRecurring: () => invoke<number>("run_recurring_cmd"),
+  runRecurringOne: (id: number) => invoke("run_recurring_one_cmd", { id }),
 
   listCryptoAssets: () => invoke<CryptoAsset[]>("list_crypto_assets_cmd"),
   saveCryptoAsset: (input: Record<string, unknown>) => invoke("save_crypto_asset_cmd", { input }),
@@ -301,6 +306,7 @@ export const api = {
   listInstallments: () => invoke<Installment[]>("list_installments_cmd"),
   saveInstallment: (input: Record<string, unknown>) => invoke("save_installment_cmd", { input }),
   deleteInstallment: (id: number) => invoke("delete_installment_cmd", { id }),
+  payInstallment: (id: number, paidAt: number) => invoke("pay_installment_cmd", { id, paidAt }),
 
   reportSummary: (from: number, to: number) => invoke<ReportSummary>("report_summary_cmd", { from, to }),
   reportSeries: (from: number, to: number) => invoke<SeriesPoint[]>("report_series_cmd", { from, to }),

@@ -121,6 +121,26 @@ export function startOfMonth(): number {
   return Math.floor(new Date(d.getFullYear(), d.getMonth(), 1).getTime() / 1000);
 }
 
+export function startOfYear(): number {
+  const d = new Date();
+  return Math.floor(new Date(d.getFullYear(), 0, 1).getTime() / 1000);
+}
+
+export function endOfMonth(): number {
+  const d = new Date();
+  return Math.floor(new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime() / 1000) - 1;
+}
+
+/** Returns { from, to } for a month offset (0 = current, -1 = previous, ...). */
+export function monthBounds(offset = 0): { from: number; to: number } {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = d.getMonth() + offset;
+  const from = new Date(y, m, 1).getTime() / 1000;
+  const to = new Date(y, m + 1, 1).getTime() / 1000 - 1;
+  return { from: Math.floor(from), to: Math.floor(to) };
+}
+
 export function daysAgo(days: number): number {
   const d = new Date();
   d.setDate(d.getDate() - days);

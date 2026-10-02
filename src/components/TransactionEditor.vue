@@ -5,9 +5,9 @@ import Modal from "./Modal.vue";
 import Icon from "./Icon.vue";
 import CurrencySelect from "./CurrencySelect.vue";
 import MoneyInput from "./MoneyInput.vue";
-import { api, Transaction, Account, Category, FxRate } from "../lib/api";
+import { api, Transaction, Account, Category, Goal, FxRate } from "../lib/api";
 import { settings, toast } from "../lib/store";
-import { parseAmount, convertAmount, toISODateLocal, fromISODate, nowSecs, formatMoney, intlLocale } from "../lib/format";
+import { parseAmount, convertAmount, toISODateLocal, fromISODate, nowSecs, formatMoney, intlLocale, minorToString } from "../lib/format";
 
 const props = defineProps<{ open: boolean; initial: Transaction | null; kind: string }>();
 const emit = defineEmits<{ (e: "close"): void; (e: "saved"): void }>();
@@ -16,6 +16,7 @@ const { t } = useI18n();
 
 const accounts = ref<Account[]>([]);
 const categories = ref<Category[]>([]);
+const goals = ref<Goal[]>([]);
 
 const form = ref({
   kind: "expense",
@@ -25,6 +26,7 @@ const form = ref({
   accountId: null as number | null,
   destAccountId: null as number | null,
   categoryId: null as number | null,
+  goalId: null as number | null,
   payee: "",
   note: "",
   tags: "",
@@ -49,20 +51,22 @@ watch(
   () => props.open,
   async (open) => {
     if (!open) return;
-    const [a, c] = await Promise.all([api.listAccounts(), api.listCategories()]);
+    const [a, c, g] = await Promise.all([api.listAccounts(), api.listCategories(), api.listGoals()]);
     accounts.value = a;
     categories.value = c;
+    goals.value = g;
 
     if (props.initial) {
       const x = props.initial;
       form.value = {
         kind: x.kind,
         amountMinor: x.amountMinor,
-        amountText: "",
+        amountText: minorToString(x.amountMinor, x.currency),
         currency: x.currency,
         accountId: x.accountId,
         destAccountId: x.destAccountId,
         categoryId: x.categoryId,
+        goalId: x.goalId ?? null,
         payee: x.payee,
         note: x.note,
         tags: x.tags.join(", "),
@@ -89,6 +93,7 @@ watch(
         accountId: a[0]?.id ?? null,
         destAccountId: null,
         categoryId: null,
+        goalId: null,
         payee: "",
         note: "",
         tags: "",
@@ -159,6 +164,7 @@ async function save() {
     accountId: form.value.accountId,
     destAccountId: isTransfer.value ? form.value.destAccountId : null,
     categoryId: form.value.kind === "transfer" ? null : form.value.categoryId,
+    goalId: form.value.goalId ?? null,
     amountMinor,
     currency: form.value.currency,
     rateScaled: needsRate.value ? form.value.rateScaled : undefined,
@@ -248,6 +254,14 @@ const title = computed(() => {
         >
           {{ c.name }}
         </option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>{{ t("txn.goal") }} <span class="faint">({{ t("common.optional") }})</span></label>
+      <select class="select" v-model="form.goalId">
+        <option :value="null">{{ t("common.none") }}</option>
+        <option v-for="g in goals" :key="g.id" :value="g.id">{{ g.name }}</option>
       </select>
     </div>
 

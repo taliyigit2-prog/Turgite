@@ -84,6 +84,10 @@ function pct(g: Goal) {
         <div style="margin-top: 12px">
           <div class="progress"><span :style="{ width: pct(g) + '%' }"></span></div>
           <div class="faint" style="margin-top: 6px">{{ Math.round(pct(g)) }}% · {{ t("goals.progress") }}</div>
+          <div class="muted" style="margin-top: 6px">
+            {{ t("goals.remaining") }}:
+            <b>{{ formatMoney(g.targetMinor - g.savedMinor, g.currency, intlLocale(settings.language)) }}</b>
+          </div>
         </div>
       </div>
     </div>

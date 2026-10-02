@@ -201,6 +201,7 @@ fn migrate(conn: &Connection) -> Result<(), String> {
           total_minor INTEGER NOT NULL,
           currency TEXT NOT NULL,
           months INTEGER NOT NULL DEFAULT 1,
+          paid_count INTEGER NOT NULL DEFAULT 0,
           started_at INTEGER NOT NULL,
           note TEXT NOT NULL DEFAULT '',
           created_at INTEGER NOT NULL
@@ -220,6 +221,35 @@ fn migrate(conn: &Connection) -> Result<(), String> {
         "#,
     )
     .map_err(|e| e.to_string())?;
+
+    migrate_installments(conn)?;
+    Ok(())
+}
+
+/// Add columns introduced after the initial release, if missing.
+fn migrate_installments(conn: &Connection) -> Result<(), String> {
+    let has_paid_count = {
+        let mut stmt = conn
+            .prepare("PRAGMA table_info(installments)")
+            .map_err(|e| e.to_string())?;
+        let cols = stmt
+            .query_map([], |r| r.get::<_, String>(1))
+            .map_err(|e| e.to_string())?;
+        let mut found = false;
+        for c in cols {
+            if c.map_err(|e| e.to_string())? == "paid_count" {
+                found = true;
+            }
+        }
+        found
+    };
+    if !has_paid_count {
+        conn.execute(
+            "ALTER TABLE installments ADD COLUMN paid_count INTEGER NOT NULL DEFAULT 0",
+            [],
+        )
+        .map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 

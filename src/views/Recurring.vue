@@ -6,7 +6,7 @@ import Modal from "../components/Modal.vue";
 import CurrencySelect from "../components/CurrencySelect.vue";
 import MoneyInput from "../components/MoneyInput.vue";
 import { api, Recurring, Account, Category } from "../lib/api";
-import { settings, bump, version } from "../lib/store";
+import { settings, bump, version, toast } from "../lib/store";
 import { formatMoney, formatDate, intlLocale, fromISODate, toISODateLocal, nowSecs } from "../lib/format";
 
 const { t } = useI18n();
@@ -38,7 +38,18 @@ async function load() {
   accounts.value = a;
   categories.value = c;
 }
-onMounted(load);
+onMounted(async () => {
+  await load();
+  try {
+    const posted = await api.runRecurring();
+    if (posted > 0) {
+      bump();
+      toast(t("recurring.runNow"));
+    }
+  } catch {
+    // ignore auto-post failures (offline etc.)
+  }
+});
 watch(version, load);
 
 function openAdd() {
@@ -78,6 +89,11 @@ async function toggle(r: Recurring) {
   await api.toggleRecurring(r.id, !r.active);
   bump();
 }
+async function runNow(r: Recurring) {
+  await api.runRecurringOne(r.id);
+  toast(t("recurring.runNow"));
+  bump();
+}
 </script>
 
 <template>
@@ -111,6 +127,7 @@ async function toggle(r: Recurring) {
             <div class="faint">{{ t("recurring.nextRun") }}: {{ formatDate(r.nextRunAt, settings.language) }}</div>
           </div>
           <div style="display: flex">
+            <button class="icon-btn" :title="t('recurring.runNow')" @click="runNow(r)"><Icon name="add" :size="15" /></button>
             <button class="icon-btn" :title="t('common.edit')" @click="openEdit(r)"><Icon name="edit" :size="15" /></button>
             <button class="icon-btn" :title="r.active ? t('recurring.inactive') : t('recurring.active')" @click="toggle(r)">
               <Icon name="check" :size="15" />

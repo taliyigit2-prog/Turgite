@@ -30,6 +30,8 @@ const editingId = ref<number | null>(null);
 const form = ref({ coinId: "bitcoin", symbol: "btc", name: "Bitcoin", amount: 0, amountText: "", costBasisMinor: 0 });
 const selectedId = ref<number | null>(null);
 const chartData = ref<[number, number][]>([]);
+const chartCache = new Map<string, [number, number][]>();
+let chartSeq = 0;
 
 async function load() {
   assets.value = await api.listCryptoAssets();
@@ -49,20 +51,30 @@ async function refreshPrices() {
   }
   loading.value = false;
   await loadChart();
+  toast(t("crypto.refreshed"));
 }
 
 async function loadChart() {
-  if (!selectedId.value) {
+  const coinId = assets.value.find((a) => a.id === selectedId.value)?.coinId;
+  if (!coinId) {
     chartData.value = [];
     return;
   }
-  const a = assets.value.find((x) => x.id === selectedId.value);
-  if (!a) return;
+  const cached = chartCache.get(coinId);
+  if (cached) {
+    chartData.value = cached;
+    return;
+  }
+  const mySeq = ++chartSeq;
+  chartData.value = [];
   try {
-    const data = await api.fetchCryptoChart(a.coinId, settings.value.baseCurrency, 30);
-    chartData.value = data;
+    const data = await api.fetchCryptoChart(coinId, settings.value.baseCurrency, 30);
+    if (mySeq === chartSeq) {
+      chartCache.set(coinId, data);
+      chartData.value = data;
+    }
   } catch {
-    chartData.value = [];
+    if (mySeq === chartSeq) toast(t("error.rate"));
   }
 }
 
@@ -208,7 +220,7 @@ const chartOption = computed(() => ({
     </div>
 
     <div class="card" style="margin-top: 16px" v-if="chartData.length">
-      <h3 style="margin-top: 0">{{ assets.find((a) => a.id === selectedId)?.name }} · 30d</h3>
+      <h3 style="margin-top: 0">{{ assets.find((a) => a.id === selectedId)?.name }} · {{ t("crypto.range30d") }}</h3>
       <VChart :option="chartOption" autoresize style="height: 220px" />
     </div>
 
