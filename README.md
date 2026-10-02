@@ -36,9 +36,9 @@ The easiest way to get Turgite is from the **[Releases page](https://github.com/
 
 | Platform | File |
 | --- | --- |
-| 🍎 macOS (Apple Silicon) | [`Turgite-0.1.0-macos.dmg`](https://github.com/taliyigit2-prog/Turgite/releases/latest) |
+| 🍎 macOS (Apple Silicon) | [⬇️ Download `Turgite-0.1.0-macos.dmg`](https://github.com/taliyigit2-prog/Turgite/releases/latest/download/Turgite-0.1.0-macos.dmg) |
 
-> Windows and Linux builds are coming soon (the app is fully cross-platform — build it yourself with the steps below, or open an issue to request a build).
+> **Windows and Linux builds are coming soon.** Turgite is fully cross-platform — you can build it yourself with the steps below, or open an issue to request an official build for your platform.
 
 ### Install on macOS
 
